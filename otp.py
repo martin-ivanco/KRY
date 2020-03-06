@@ -1,3 +1,6 @@
+import argparse
+import base64
+
 class CipherString:
     def __init__(self, values):
         if type(values) is list:
@@ -33,3 +36,17 @@ class CipherString:
 
     def __iter__(self):
         return iter(self.values)
+
+def main():
+    parser = argparse.ArgumentParser(description="Weakend One-Time Pad Algorithm Cracker")
+    parser.add_argument("messages", type = str, metavar = "<filename>",
+        help = "path to file with encrypted messages encoded in base64 and separated by new line")
+    args = parser.parse_args()
+
+    with open(args.messages) as file:
+        lines = file.readlines()
+    lines = [list(base64.b64decode(l.strip())) for l in lines]
+    messages = [CipherString(l) for l in lines]
+
+if __name__ == "__main__":
+    main()
