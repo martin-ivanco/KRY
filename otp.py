@@ -2,9 +2,11 @@ import argparse
 import base64
 import json
 import os
-from progressbar import progressbar
+import progressbar
 
 class Message:
+    placeholder = ord("_")
+
     def __init__(self, values):
         if type(values) is list:
             self.values = values
@@ -16,7 +18,7 @@ class Message:
         newvals = []
         for i in range(minlen):
             if self.values[i] < 0 or other.values[i] < 0:
-                newvals.append(ord("_"))
+                newvals.append(self.placeholder)
             else:
                 newvals.append(self.values[i] ^ other.values[i])
         return Message(newvals)
@@ -79,34 +81,33 @@ class OTPCracker:
                  72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 97,
                  98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113,
                  114, 115, 116, 117, 118, 119, 120, 121, 122]
-    trigrams = ["pro", "ova", "ost", "pri", "sta", "pre", "ter", "eni", "pod", "kte", "pra",
-                  "eho", "sti", "red", "kon", "nos", "ick", "sou", "ist", "edn", "ske", "odn",
-                  "tel", "ani", "ent", "str", "ove", "nov", "pol", "spo", "vat", "nim", "jak",
-                  "val", "dni", "sto", "tak", "lov"]
-    bigrams = ["st", "pr", "ne", "ni", "po", "ov", "ro", "en", "na", "je", "te", "le", "ko",
-                  "od", "ra", "to", "ou", "no", "la", "li", "ho", "do", "os", "se", "ta", "al",
-                  "ed", "an", "ce", "va", "at", "re", "er", "ti", "em", "in", "sk", "lo"]
 
     def __init__(self, crib_words):
         self.cribs = [Crib(cw) for cw in crib_words]
         self.keys = []
         self.maxlen = 0
     
-    def crack(self, messages):
+    def crack(self, messages, batch_file = None):
         # check the last key against messages
         if self.keys:
-            last_key = self.keys[len(self.keys) - 1]
+            last_key = self.keys[-1]
             for m in messages:
                 decrypted = m + self.key2msg(last_key)
-                print(str(decrypted))
                 for i, v in enumerate(decrypted.values):
                     if v not in self.printable and i in last_key:
                         last_key.pop(i)
 
+        # set up progress bar
+        widgets = []
+        if batch_file is not None:
+            widgets = ["Processing file '{}': ".format(batch_file)]
+        widgets.extend([progressbar.Bar(marker = u"\u2588"), " ", progressbar.Timer(), " ", progressbar.Percentage()])
+        bar = progressbar.ProgressBar(widgets = widgets) 
+
         # search for cribs in messages
         self.keys.append({})
-        last_key = self.keys[len(self.keys) - 1]
-        for c in progressbar(self.cribs):
+        last_key = self.keys[-1]
+        for c in bar(self.cribs):
             c.search(messages)
             for idx, match in c.message_matches.items():
                 for i, v in enumerate(match):
@@ -115,22 +116,17 @@ class OTPCracker:
                         self.add_subkey(last_key, subkey, i)
 
         # remove conflicts from key
-        print("Key: {}".format(last_key))
-        # with open("test1.json", "w") as f:
-        #     for i, vs in last_key.items():
-        #         last_key[i] = list(vs)
-        #     json.dump(last_key, f)
         self.maxlen = max(self.maxlen, max([len(m) for m in messages]))
         for i in list(last_key):
             if len(last_key[i]) > 1:
                 last_key.pop(i)
     
-    def add_subkey(self, key, subkey, idx):
+    def add_subkey(self, key, subkey, offset):
         for i, k in enumerate(subkey):
-            if idx + i in key:
-                key[idx + i].add(k)
+            if offset + i in key:
+                key[offset + i].add(k)
             else:
-                key[idx + i] = set([k])
+                key[offset + i] = set([k])
 
     def key2msg(self, key):
         values = [-1] * self.maxlen
@@ -162,21 +158,21 @@ class OTPCracker:
         for i in list(key):
             if len(key[i]) > 1:
                 key.pop(i)
-
         return self.key2msg(key)
 
 def main():
-    # parse arguments
-    parser = argparse.ArgumentParser(description="Weakend One-Time Pad Algorithm Cracker")
-    parser.add_argument("msg_folder", type = str, metavar = "<filename>",
-        help = "path to folder with files with encrypted messages encoded in base64 and separated "
-               "by new line")
-    args = parser.parse_args()
-    
-    # load crib words dictionary
-    with open("words.json") as file:
-        words = json.load(file)
+    args = parse_args()
 
+    # set allowed characters and placeholder if requested
+    if args.allowed:
+        with open(args.allowed) as file:
+            OTPCracker.printable = json.load(file)
+    if args.placeholder:
+        Message.placeholder = ord(args.placeholder[0])
+    
+    # load crib words dictionary and create OTP cracker
+    with open(args.dictionary) as file:
+        words = json.load(file)
     cracker = OTPCracker(words)
 
     # go through message files
@@ -186,17 +182,33 @@ def main():
         with open(os.path.join(args.msg_folder, f)) as file:
             lines = file.readlines()
         lines = [list(base64.b64decode(l.strip())) for l in lines]
-        cracker.crack([Message(l) for l in lines])
+        cracker.crack([Message(l) for l in lines], f)
     
-    # get final key and save it
-    cracker.save_keys("keys.txt")
+    # get key and save it
     key = cracker.merge_keys()
-    with open("key.txt", "w") as file:
+    with open(args.output, "w") as file:
         json.dump(key.values, file)
+    print("Key successfully cracked!")
 
-    print("- - - - - - - - - - - - - - - - - - - - - - - - -")
-    print("FINAL KEY: {}".format(key.values))
-    print("- - - - - - - - - - - - - - - - - - - - - - - - -")
+def parse_args():
+    parser = argparse.ArgumentParser(description="Weakend One-Time Pad Algorithm Cracker")
+    parser.add_argument("msg_folder", type = str, metavar = "<messages path>",
+        help = "path to folder with txt files containing encrypted messages encoded in base64 and "
+               "separated by a new line")
+    parser.add_argument("-d", "--dictionary", type = str, required = False, metavar = "<path>",
+        default = "words.json",
+        help = "path to a json file containing an array of frequently used words in the language "
+               "of the encrypted messages - defaults to included dictionary of czech words")
+    parser.add_argument("-o", "--output", type = str, required = False, metavar = "<path>",
+        default = "key.txt", help = "path output file - defaults to 'key.txt'")
+    parser.add_argument("-a", "--allowed", type = str, required = False, metavar = "<path>",
+        help = "path to a json file containing an array of integer values representing allowed "
+               "charcters in the messages - defaults to letters of english alphabet, numbers, "
+               "dot, comma and space")
+    parser.add_argument("-p", "--placeholder", type = str, required = False, metavar = "<char>",
+        help = "character to print as a placeholder for places in the messages that the program "
+               "couldn't crack - defaults to '_'")
+    return parser.parse_args()
 
 if __name__ == "__main__":
     main()
