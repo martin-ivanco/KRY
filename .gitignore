@@ -2,5 +2,6 @@
 .vscode
 __pycache__
 playground.py
-key.txt
-message*.txt
+messages
+key*.txt
+scraper.py
