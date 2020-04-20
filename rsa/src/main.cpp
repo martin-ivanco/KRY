@@ -17,7 +17,8 @@ int main(int argc, char **argv) {
     RSA rsa = RSA();
 
     if (arg.task == ArgParse::GENERATE) {
-        rsa.generate(arg.size);
+        if (! rsa.generate(arg.size))
+            return 2;
         cout << "0x" + rsa.p.get_str(16) + " 0x" + rsa.q.get_str(16) + " 0x" + rsa.n.get_str(16)
                 + " 0x" + rsa.e.get_str(16) + " 0x" + rsa.d.get_str(16) << endl;
     }

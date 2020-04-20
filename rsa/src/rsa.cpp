@@ -4,14 +4,24 @@ RSA::RSA() : rng(gmp_randinit_mt) {
     this->seedRNG();
 }
 
-void RSA::generate(int size) {
-    // TODO check size
-    
+bool RSA::generate(int size) {
+    // Check if size is valid
+    if (size < 3) {
+        cerr << "ERROR: Invalid size. Choose a size of at least 3." << endl;
+        return false;
+    }
+
     // Find a suitable pair of random primes (p, q) to make modulo n
     this->n = 0;
-    while (mpz_sizeinbase(n.get_mpz_t(), 2) != size) {
+    for (int i = 0; i < RSA::MPGI; i++) {
         this->generatePrimes(size);
         this->n = this->p * this->q;
+        if (mpz_sizeinbase(n.get_mpz_t(), 2) == size)
+            break;
+    }
+    if (mpz_sizeinbase(n.get_mpz_t(), 2) != size) {
+        cerr << "ERROR: Couldn't find suitable pair of primes. Try setting a larger size." << endl;
+        return false;
     }
 
     // Compute phi(n)
@@ -25,6 +35,8 @@ void RSA::generate(int size) {
     
     // Find d = inv(e, phi(n))
     this->d = this->inv(this->e, phi);
+
+    return true;
 }
 
 mpz_class RSA::encrypt(mpz_class message) {
@@ -66,7 +78,7 @@ void RSA::generatePrimes(int size) {
     // Make them odd
     mpz_setbit(this->p.get_mpz_t(), 0);
     mpz_setbit(this->q.get_mpz_t(), 0);
-    
+
     // Make sure they are different
     while (this->p == this->q) {
         this->q = this->rng.get_z_bits(size / 2 + size % 2);
@@ -85,6 +97,12 @@ void RSA::generatePrimes(int size) {
 }
 
 bool RSA::isPrime(mpz_class n) {
+    // Check special cases
+    if (n < 2)
+        return false;
+    if (n < 4)
+        return true;
+
     // Count d and r
     mpz_class d = n - 1;
     mpz_class r = 0;

@@ -11,7 +11,8 @@ using namespace std;
 class RSA {
 
 private:
-    static const int MRTI = 32;
+    static const int MPGI = 50; // maximum prime generation iterations
+    static const int MRTI = 32; // Miller-Rabin test iterations
 
     gmp_randclass rng;
 
@@ -25,7 +26,7 @@ public:
     mpz_class p, q, n, e, d;
 
     RSA();
-    void generate(int size);
+    bool generate(int size);
     mpz_class encrypt(mpz_class message);
     mpz_class decrypt(mpz_class message);
 
