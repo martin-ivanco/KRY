@@ -1,6 +1,7 @@
 .DS_Store
 .vscode
 __pycache__
+build
 playground.py
 messages
 key*.txt
