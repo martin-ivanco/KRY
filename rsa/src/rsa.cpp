@@ -1,5 +1,7 @@
 #include "rsa.hpp"
 
+using namespace std;
+
 RSA::RSA() : rng(gmp_randinit_mt) {
     this->seedRNG();
 }
@@ -49,6 +51,18 @@ mpz_class RSA::decrypt(mpz_class message) {
     mpz_class result;
     mpz_powm(result.get_mpz_t(), message.get_mpz_t(), this->d.get_mpz_t(), this->n.get_mpz_t());
     return result;
+}
+
+mpz_class RSA::breakWeakN(mpz_class message) {
+    // Factorize n to find p and q
+    this->p = this->ecm(this->n);
+    this->q = this->n / this->p;
+
+    // Find d = inv(e, phi(n))
+    this->d = this->inv(this->e, (this->p - 1) * (this->q - 1));
+
+    // Decrypt message
+    return this->decrypt(message);
 }
 
 void RSA::seedRNG() {
@@ -148,7 +162,8 @@ mpz_class RSA::gcd(mpz_class n1, mpz_class n2) {
     return a;
 }
 
-mpz_class RSA::inv(mpz_class n1, mpz_class n2) {
+mpz_class RSA::inv(mpz_class n1, mpz_class n2, bool pos) {
+    // Find modular inverse
     mpz_class t = 0;
     mpz_class nt = 1;
     mpz_class r = n2;
@@ -167,8 +182,120 @@ mpz_class RSA::inv(mpz_class n1, mpz_class n2) {
 
     if (r > 1)
         throw "n1 is not invertible";
-    if (t < 0)
+    if (pos && (t < 0))
         t += n2;
 
     return t;
+}
+
+mpz_class RSA::rho(mpz_class n) {
+    // Pollard's rho factorization algorithm
+    mpz_class x, y, g;
+
+    while (true) {
+        x = this->rng.get_z_range(n - 2) + 2;
+        y = x;
+        g = 1;
+
+        while (g == 1) {
+            // g(x) = (x * x - 1) % n
+            x *= x; x += 1; x %= n;
+            y *= y; y += 1; y %= n;
+            y *= y; y += 1; y %= n;
+            g = gcd(abs(x - y), n);
+        }
+
+        if (g != n)
+            return g;
+    }
+}
+
+mpz_class RSA::ecm(mpz_class n) {
+    // Lenstra elliptic curve factorization
+    vector<mpz_class> primes;
+    this->soe(primes);
+    mpz_class a, b, g, pp;
+    mpz_tuple q;
+
+    while (true) {
+        g = n;
+        while (g == n) {
+            get<0>(q) = this->rng.get_z_range(n);
+            get<1>(q) = this->rng.get_z_range(n);
+            get<2>(q) = 1;
+            a = this->rng.get_z_range(n);
+            b = ((get<1>(q) * get<1>(q)) - (get<0>(q) * get<0>(q) * get<0>(q)) - (a * get<0>(q)));
+            b %= n; if (b < 0) b += n;
+            g = gcd((4 * a * a * a) + (27 * b * b), n);
+        }
+
+        if (g > 1)
+            return g;
+
+        for (mpz_class p : primes) {
+            pp = p;
+            while (pp < RSA::PL) {
+                q = this->emul(p, q, a, b, n);
+                if (get<2>(q) > 1)
+                    return gcd(get<2>(q), n);
+                pp = p * pp;
+            }
+        }
+    }
+}
+
+void RSA::soe(vector<mpz_class> &primes) {
+    // Sieve of Eratosthenes
+    vector<bool> bs(RSA::PL, true);
+    for (int p = 2; p <= RSA::PL; p++) {
+        if (bs[p]) {
+            primes.push_back(p);
+            for (int i = p; i <= RSA::PL; i += p)
+                bs[i] = false;
+        }
+    }
+}
+
+RSA::mpz_tuple RSA::emul(mpz_class k, mpz_tuple p, mpz_class a, mpz_class b, mpz_class m) {
+    // Elliptic multiplication
+    mpz_tuple r(0, 1, 0);
+    while (k > 0) {
+        if (get<2>(p) > 1)
+            return p;
+        if (k % 2 == 1)
+            r = this->eadd(p, r, a, b, m);
+            
+        k /= 2;
+        p = this->eadd(p, p, a, b, m);
+    }
+    return r;
+}
+
+RSA::mpz_tuple RSA::eadd(mpz_tuple p, mpz_tuple q, mpz_class a, mpz_class b, mpz_class m) {
+    // Elliptic addition
+    mpz_class n, d, i, z;
+    if (get<2>(p) == 0) return q;
+    if (get<2>(q) == 0) return p;
+
+    if (get<0>(p) == get<0>(q)) {
+        if ((get<1>(p) + get<1>(q)) % m == 0)
+            return mpz_tuple(0, 1, 0);
+        n = (3 * get<0>(p) * get<0>(p) + a) % m; if (n < 0) n += m;
+        d = (2 * get<1>(p)) % m; if (d < 0) d += m;
+    }
+    else {
+        n = (get<1>(q) - get<1>(p)) % m; if (n < 0) n += m;
+        d = (get<0>(q) - get<0>(p)) % m; if (d < 0) d += m;
+    }
+
+    try {
+        i = this->inv(d, m, false);
+    }
+    catch (...) {
+        return mpz_tuple(0, 0, d);
+    }
+
+    z = (n * i * n * i - get<0>(p) - get<0>(q)) % m; if (z < 0) z += m;
+    d = (n * i * (get<0>(p) - z) - get<1>(p)) % m; if (d < 0) d += m;
+    return mpz_tuple(z, d, 1);
 }

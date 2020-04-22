@@ -38,7 +38,11 @@ int main(int argc, char **argv) {
     }
 
     if (arg.task == ArgParse::BREAK) {
-        cerr << "Sorry, breaking cyphers is not yet implemented." << endl;
+        rsa.e = arg.exponent;
+        rsa.n = arg.modulo;
+        mpz_class result = rsa.breakWeakN(arg.message);
+        cout << "0x" + rsa.p.get_str(16) + " 0x" + rsa.q.get_str(16) + " 0x" + result.get_str(16)
+             << endl;
         return 3;
     }
 
