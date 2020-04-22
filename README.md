@@ -18,3 +18,4 @@ Clone this repo using `git clone https://github.com/photohunter9/KRY.git`
 * Python 3
 * C++17
 * CMake
+* GMP
